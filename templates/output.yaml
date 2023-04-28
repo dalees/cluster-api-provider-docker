@@ -1,0 +1,24 @@
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: kubecontest
+  namespace: default
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+      - 172.25.0.0/16
+    services:
+      cidrBlocks:
+      - 172.26.0.0/16
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: DockerCluster
+    name: kubecontest
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: DockerCluster
+metadata:
+  name: kubecontest
+  namespace: default
+spec: {}

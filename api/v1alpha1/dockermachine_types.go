@@ -18,6 +18,14 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+)
+
+const (
+	// MachineFinalizer allows ReconcileDockeroMachine to clean up Byo
+	// resources associated with DockeroMachine before removing it from the
+	// API Server.
+	MachineFinalizer = "dockermachine.infrastructure.cluster.x-k8s.io"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -28,14 +36,38 @@ type DockerMachineSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of DockerMachine. Edit dockermachine_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// ProviderID is the identifier for the DockerMachine instance
+	ProviderID *string `json:"providerID,omitempty"`
+}
+
+// Mount specifies a host volume to mount into a container.
+// This is a simplified version of kind v1alpha4.Mount types.
+type Mount struct {
+	// Path of the mount within the container.
+	ContainerPath string `json:"containerPath,omitempty"`
+
+	// Path of the mount on the host. If the hostPath doesn't exist, then runtimes
+	// should report error. If the hostpath is a symbolic link, runtimes should
+	// follow the symlink and mount the real destination to container.
+	HostPath string `json:"hostPath,omitempty"`
+
+	// If set, the mount is read-only.
+	// +optional
+	Readonly bool `json:"readOnly,omitempty"`
 }
 
 // DockerMachineStatus defines the observed state of DockerMachine
 type DockerMachineStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+
+	// Ready indicates the docker infrastructure has been provisioned and is ready
+	// +optional
+	Ready bool `json:"ready"`
+
+	// Conditions defines current service state of the BYOMachine.
+	// +optional
+	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
@@ -61,4 +93,14 @@ type DockerMachineList struct {
 
 func init() {
 	SchemeBuilder.Register(&DockerMachine{}, &DockerMachineList{})
+}
+
+// GetConditions returns the conditions of ByoMachine status
+func (dockerMachine *DockerMachine) GetConditions() clusterv1.Conditions {
+	return dockerMachine.Status.Conditions
+}
+
+// SetConditions sets the conditions of ByoMachine status
+func (dockerMachine *DockerMachine) SetConditions(conditions clusterv1.Conditions) {
+	dockerMachine.Status.Conditions = conditions
 }

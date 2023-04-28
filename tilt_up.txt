@@ -1,0 +1,34 @@
+dale@signal:~/go/src/github.com/dalees/cluster-api$ kind delete cluster --name capi-dev
+Deleting cluster "capi-dev" ...
+Deleted nodes: ["capi-dev-control-plane"]
+dale@signal:~/go/src/github.com/dalees/cluster-api$ kind delete cluster capi-dev^C
+dale@signal:~/go/src/github.com/dalees/cluster-api$ ctlptl apply -f ctlptl-cluster-with-extramounts.yaml
+registry.ctlptl.dev/ctlptl-registry created
+No kind clusters found.
+Creating cluster "capi-dev" ...
+ ✓ Ensuring node image (kindest/node:v1.26.3) 🖼 
+ ✓ Preparing nodes 📦  
+ ✓ Writing configuration 📜 
+ ✓ Starting control-plane 🕹️ 
+ ✓ Installing CNI 🔌 
+ ✓ Installing StorageClass 💾 
+Set kubectl context to "kind-capi-dev"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-capi-dev
+
+Thanks for using kind! 😊
+Switched to context "kind-capi-dev".
+ 🔌 Connected cluster kind-capi-dev to registry ctlptl-registry at localhost:5005
+ 👐 Push images to the cluster like 'docker push localhost:5005/alpine'
+cluster.ctlptl.dev/kind-capi-dev created
+dale@signal:~/go/src/github.com/dalees/cluster-api$ tilt up
+Tilt started on http://localhost:10350/
+v0.32.2, built 2023-04-17
+
+(space) to open the browser
+(s) to stream logs (--stream=true)
+(t) to open legacy terminal mode (--legacy=true)
+(ctrl-c) to exit
+Opening browser: http://localhost:10350/
+
