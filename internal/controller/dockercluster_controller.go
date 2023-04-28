@@ -25,7 +25,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	//"github.com/capi-samples/cluster-api-provider-docker/pkg/container"
 	infrav1 "github.com/dalees/cluster-api-provider-docker/api/v1alpha1"
@@ -34,6 +36,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/patch"
@@ -141,8 +144,24 @@ func (r *DockerClusterReconciler) reconcileNormal(ctx context.Context, dockerClu
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	// TODO: loadbalancer actual creation logic
+	// Create the docker container hosting the load balancer.
+	if err := externalLoadBalancer.Create(ctx); err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to create load balancer")
+	}
 
+	// Get the load balancer IP so we can use it for the enpoint address
+	lbIP, err := externalLoadBalancer.IP(ctx)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to get ip for the load balancer")
+	}
+
+	// Update the spec endpoint, for Cluster controller to copy into it's own spec.
+	dockerCluster.Spec.ControlPlaneEndpoint = clusterv1.APIEndpoint{
+		Host: lbIP,
+		Port: 6443,
+	}
+
+	// Signal to Cluster that status.InfrastructureReady:true can be set, and the next stage can begin.
 	dockerCluster.Status.Ready = true
 
 	return ctrl.Result{}, nil
@@ -156,17 +175,45 @@ func (r *DockerClusterReconciler) reconcileDelete(ctx context.Context, dockerClu
 		logger.Info("Reconcile delete complete")
 	}()
 
-	// TODO: loadbalancer actual delete
+	// Delete the docker container hosting the load balancer
+	if err := externalLoadBalancer.Delete(ctx); err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to delete load balancer")
+	}
 
-	// Cluster is deleted so remove the finalizer.
+	// Cluster is deleted so remove the finalizer. This allows the resource to delete.
 	controllerutil.RemoveFinalizer(dockerCluster, infrav1.ClusterFinalizer)
 
 	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *DockerClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+func (r *DockerClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	// Reconcile if there are events on DockerCluster resources
+	// TODO: Skip reconcile if cluster is paused. WithEventFilter
+	c, err := ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.DockerCluster{}).
-		Complete(r)
+		Build(r)
+	if err != nil {
+		return err
+	}
+
+	// Also watch for change events on parent Cluster resources
+	// Trigger the reconcile event with the child DockerCluster resource
+	// TODO: skip if cluster is paused
+	// NOTE(dalees):
+	//   ClusterToInfrastructureMapFunc throws error into the logs when DockerCluster is deleted and Cluster is being updated as part of deletion.
+	//   These are harmless, but slightly annoying messages. Might be better to detect deletion state and not log failure?
+	//   See sigs.k8s.io/cluster-api@v1.4.1/util/util.go:221
+	return c.Watch(
+		&source.Kind{Type: &clusterv1.Cluster{}},
+		handler.EnqueueRequestsFromMapFunc(
+			util.ClusterToInfrastructureMapFunc(
+				ctx,
+				infrav1.GroupVersion.WithKind("DockerCluster"),
+				mgr.GetClient(),
+				&infrav1.DockerCluster{},
+			),
+		),
+		//predicates.ClusterUnpaused(ctrl.LoggerFrom(ctx)),
+	)
 }

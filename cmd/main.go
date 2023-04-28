@@ -67,7 +67,7 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	//ctx := ctrl.SetupSignalHandler()
+	ctx := ctrl.SetupSignalHandler()
 	// Set our runtime client into the context for later use
 	runtimeClient, err := container.NewDockerClient()
 	if err != nil {
@@ -103,7 +103,7 @@ func main() {
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
 		ContainerRuntime: runtimeClient,
-	}).SetupWithManager(mgr); err != nil {
+	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DockerCluster")
 		os.Exit(1)
 	}
@@ -126,7 +126,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
