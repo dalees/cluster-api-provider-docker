@@ -24,6 +24,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	//"github.com/capi-samples/cluster-api-provider-docker/pkg/container"
@@ -62,6 +63,9 @@ type DockerClusterReconciler struct {
 func (r *DockerClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Starting Reconcile on DockerCluster")
+	defer func() {
+		logger.Info("Reconcile complete on DockerCluster.")
+	}()
 
 	ctx = container.RuntimeInto(ctx, r.ContainerRuntime)
 
@@ -127,12 +131,36 @@ func (r *DockerClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 func (r *DockerClusterReconciler) reconcileNormal(ctx context.Context, dockerCluster *infrav1.DockerCluster, externalLoadBalancer *docker.LoadBalancer) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Starting Reconcile on normal Docker Cluster")
+	defer func() {
+		logger.Info("Reconcile normal complete")
+	}()
+
+	if !controllerutil.ContainsFinalizer(dockerCluster, infrav1.ClusterFinalizer) {
+		controllerutil.AddFinalizer(dockerCluster, infrav1.ClusterFinalizer)
+
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// TODO: loadbalancer actual creation logic
+
+	dockerCluster.Status.Ready = true
+
 	return ctrl.Result{}, nil
 }
 
 func (r *DockerClusterReconciler) reconcileDelete(ctx context.Context, dockerCluster *infrav1.DockerCluster, externalLoadBalancer *docker.LoadBalancer) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Starting Reconcile on deleted Docker Cluster")
+
+	defer func() {
+		logger.Info("Reconcile delete complete")
+	}()
+
+	// TODO: loadbalancer actual delete
+
+	// Cluster is deleted so remove the finalizer.
+	controllerutil.RemoveFinalizer(dockerCluster, infrav1.ClusterFinalizer)
+
 	return ctrl.Result{}, nil
 }
 
