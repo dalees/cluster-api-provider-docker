@@ -28,9 +28,6 @@ const (
 	MachineFinalizer = "dockermachine.infrastructure.cluster.x-k8s.io"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // DockerMachineSpec defines the desired state of DockerMachine
 type DockerMachineSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -38,6 +35,16 @@ type DockerMachineSpec struct {
 
 	// ProviderID is the identifier for the DockerMachine instance
 	ProviderID *string `json:"providerID,omitempty"`
+
+	// CustomImage allows customizing the container image that is used for
+	// running the machine
+	// +optional
+	CustomImage string `json:"customImage,omitempty"`
+
+	// Bootstrapped is true when the kubeadm bootstrapping has been run
+	// against this machine
+	// +optional
+	Bootstrapped bool `json:"bootstrapped,omitempty"`
 }
 
 // Mount specifies a host volume to mount into a container.
@@ -68,10 +75,23 @@ type DockerMachineStatus struct {
 	// Conditions defines current service state of the BYOMachine.
 	// +optional
 	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
+
+	// LoadBalancerConfigured denotes that the machine has been
+	// added to the load balancer
+	// +optional
+	LoadBalancerConfigured bool `json:"loadBalancerConfigured"`
+
+	// Addresses contains the associated addresses for the docker machine.
+	// +optional
+	Addresses []clusterv1.MachineAddress `json:"addresses,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".metadata.labels['cluster\\.x-k8s\\.io/cluster-name']",description="Cluster"
+//+kubebuilder:printcolumn:name="Machine",type="string",JSONPath=".metadata.ownerReferences[?(@.kind==\"Machine\")].name",description="Machine object which owns with this DockerMachine"
+//+kubebuilder:printcolumn:name="ProviderID",type="string",JSONPath=".spec.providerID",description="Provider ID"
+//+kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Machine ready status"
 
 // DockerMachine is the Schema for the dockermachines API
 type DockerMachine struct {
