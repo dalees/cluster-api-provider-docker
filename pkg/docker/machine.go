@@ -197,63 +197,64 @@ func (m *Machine) ContainerImage() string {
 func (m *Machine) Create(ctx context.Context, image string, role string, version *string, labels map[string]string, mounts []infrav1.Mount) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Create if not exists.
-	if m.container == nil {
-		var err error
-
-		machineImage := m.machineImage(version)
-		if image != "" {
-			machineImage = image
-		}
-
-		switch role {
-		case constants.ControlPlaneNodeRoleValue:
-			log.Info("Creating control plane machine container")
-			m.container, err = m.nodeCreator.CreateControlPlaneNode(
-				ctx,
-				m.ContainerName(),
-				machineImage,
-				m.cluster,
-				"127.0.0.1",
-				0,
-				kindMounts(mounts),
-				nil,
-				labels,
-				m.ipFamily,
-			)
-			if err != nil {
-				return errors.WithStack(err)
-			}
-		case constants.WorkerNodeRoleValue:
-			log.Info("Creating worker machine container")
-			m.container, err = m.nodeCreator.CreateWorkerNode(
-				ctx,
-				m.ContainerName(),
-				machineImage,
-				m.cluster,
-				kindMounts(mounts),
-				nil,
-				labels,
-				m.ipFamily,
-			)
-			if err != nil {
-				return errors.WithStack(err)
-			}
-		default:
-			return errors.Errorf("unable to create machine for role %s", role)
-		}
-		// After creating a node we need to wait a small amount of time until crictl does not return an error.
-		// This fixes an issue where we try to kubeadm init too quickly after creating the container.
-		err = wait.PollImmediate(500*time.Millisecond, 4*time.Second, func() (bool, error) {
-			ps := m.container.Commander.Command("crictl", "ps")
-			return ps.Run(ctx) == nil, nil
-		})
-		if err != nil {
-			log.Info("Failed running command", "command", "crictl ps")
-			logContainerDebugInfo(ctx, log, m.ContainerName())
-			return errors.Wrap(errors.WithStack(err), "failed to run crictl ps")
-		}
+	// Don't create if the container already exists
+	if m.container != nil {
 		return nil
+	}
+
+	var err error
+
+	machineImage := m.machineImage(version)
+	if image != "" {
+		machineImage = image
+	}
+
+	switch role {
+	case constants.ControlPlaneNodeRoleValue:
+		log.Info("Creating control plane machine container")
+		m.container, err = m.nodeCreator.CreateControlPlaneNode(
+			ctx,
+			m.ContainerName(),
+			machineImage,
+			m.cluster,
+			"127.0.0.1",
+			0,
+			kindMounts(mounts),
+			nil,
+			labels,
+			m.ipFamily,
+		)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+	case constants.WorkerNodeRoleValue:
+		log.Info("Creating worker machine container")
+		m.container, err = m.nodeCreator.CreateWorkerNode(
+			ctx,
+			m.ContainerName(),
+			machineImage,
+			m.cluster,
+			kindMounts(mounts),
+			nil,
+			labels,
+			m.ipFamily,
+		)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+	default:
+		return errors.Errorf("unable to create machine for role %s", role)
+	}
+	// After creating a node we need to wait a small amount of time until crictl does not return an error.
+	// This fixes an issue where we try to kubeadm init too quickly after creating the container.
+	err = wait.PollImmediate(500*time.Millisecond, 4*time.Second, func() (bool, error) {
+		ps := m.container.Commander.Command("crictl", "ps")
+		return ps.Run(ctx) == nil, nil
+	})
+	if err != nil {
+		log.Info("Failed running command", "command", "crictl ps")
+		logContainerDebugInfo(ctx, log, m.ContainerName())
+		return errors.Wrap(errors.WithStack(err), "failed to run crictl ps")
 	}
 	return nil
 }
