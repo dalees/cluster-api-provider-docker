@@ -1,0 +1,87 @@
+# Note 1: Using local registry
+Need to create a registry container, and mount it into the kind cluster.
+ctlptl provides an easy way of doing this, see ctlptl-cluster-with-extramounts.yaml
+
+$ ctlptl apply -f <config.yaml>
+=> See tilt_up.txt for output
+
+# Note 2: After creating a kind cluster, capi-system pod stuck in ContainerCreating.
+This was because they were waiting on a secret to mount 'capi-kubeadm-bootstrap-webhook-service-cert'.
+This had a Certificate capi-kubeadm-bootstrap-serving-cert created, but wasn't being processed by cert-manager.
+cert-manager was not installed in the cluster.
+Install cert-manager manually: https://cert-manager.io/docs/installation/
+	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.yaml
+After a few minutes, secrets are created, pods transition to Running.
+
+
+
+# Note 3: Error from DockerCluster controller:
+	failed to get Cluster/kubecontest: no kind is registered for the type v1beta1.Cluster in scheme \"pkg/runtime/scheme.go:100\"
+This was caused by missing registration of clustr api types into APIMachinery Scheme.
+	This is done in main.go, utilruntime.Must(clusterv1.AddToScheme(scheme))
+	Clue: https://stackoverflow.com/questions/74059769/error-no-kind-is-registered-for-the-type-v1-servicemonitor-in-scheme-pkg-r
+
+# Note 4: Role error:
+	failed to list *v1beta1.Cluster: clusters.cluster.x-k8s.io is forbidden: User "system:serviceaccount:capdkc-system:capdkc-controller-manager" cannot list resource "clusters" in API group "cluster.x-k8s.io" at the cluster scope
+This is caused by tilt not updating some kubebuilder template (or role). Code:
+	//+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;clusters/status,verbs=get;list;watch
+This ends up in here, using 'make manifests':
+	config/rbac/role.yaml
+But how do we tell Tilt to apply this change?
+	Trigger update on 'unlabeled/uncategorized' section in Tilt UI?
+	Ends up with Terminating namespaces! These are now stuck because some CRDs are undefined that it needs to clean up.
+	=>Delete entire kind cluster, re-create? :(
+	$ kind delete cluster --name capi-dev
+	$ ctlptl apply -f ctlptl-cluster-with-extramounts.yaml
+	$ tilt up
+	=> Restarting tilt may do a similar thing.
+	stop tilt process with ctrl+c
+	$ tilt up
+
+
+# Note 5: Error with CRDS.
+resource mapping not found for name: "kubecontest-control-plane" namespace: "default" from "templates/output-with-machinedeployment.yaml": no matches for kind "DockerMachineTemplate" in version "infrastructure.cluster.x-k8s.io/v1alpha1"
+ensure CRDs are installed first
+	The new resource type isn't registered yet. How do I do this?
+	Looks less like a Golang problem and more a CRD problem? make generate and make manifests didn't change muhc?
+	Restart tilt after running 'make'? yes! This fixed it.
+	Now we can:
+		dale@signal:~/go/src/github.com/dalees/cluster-api-provider-docker$ kubectl apply -f templates/output-with-machinedeployment.yaml --dry-run=server
+		cluster.cluster.x-k8s.io/kubecontest created (server dry run)
+		dockercluster.infrastructure.cluster.x-k8s.io/kubecontest created (server dry run)
+		kubeadmcontrolplane.controlplane.cluster.x-k8s.io/kubecontest-control-plane created (server dry run)
+		dockermachinetemplate.infrastructure.cluster.x-k8s.io/kubecontest-control-plane created (server dry run)
+		machinedeployment.cluster.x-k8s.io/kubecontest-md-0 created (server dry run)
+		dockermachinetemplate.infrastructure.cluster.x-k8s.io/kubecontest-md-0 created (server dry run)
+		kubeadmconfigtemplate.bootstrap.cluster.x-k8s.io/kubecontest-md-0 created (server dry run)
+
+
+# Note 6: 
+Loadbalancer wasn't passing traffic
+	needs to be in 'mode tcp' not 'mode http'
+
+# Note 7
+Nodes don't progress to Ready.
+
+	Need to install a CNI system
+	Manual steps:
+		dale@signal:~$ docker exec -it -u 0 kubecontest-control-plane-c4dkc bash
+		root@kubecontest-control-plane-c4dkc:/# curl https://raw.githubusercontent.com/projectcalico/calico/v3.25.1/manifests/calico.yaml -O
+		root@kubecontest-control-plane-c4dkc:/# kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f calico.yaml 
+	And after some time, the CNI is installed. Nodes become Ready!
+
+	Automatic steps:
+		Somehow, install management configmap that gets loaded into cluster?
+		Use ClusterResourceSet, as done by Vexxhost
+		https://cluster-api.sigs.k8s.io/tasks/experimental-features/cluster-resource-set.html
+		https://blog.scottlowe.org/2021/03/02/deploying-a-cni-automatically-with-a-clusterresourceset/
+
+
+# Note 8
+Upgrading nodes to 1.24+ results in kubelet failures talking to containerd.
+
+May 01 05:04:44 kubecontest-control-plane-glww6 kubelet[643]: E0501 05:04:44.181954     643 remote_runtime.go:201] "RunPodSandbox from runtime service failed" err="rpc error: code = Unknown desc = failed to create containerd task: failed to create shim task: OCI runtime create failed: runc create failed: expected cgroupsPath to be of format \"slice:prefix:name\" for systemd cgroups, got \"/kubelet/kubepods/burstable/pod552e35bcebcf4f010b93c2e3d18c4b10/5b4d582d9d3c846d8d025c5a18d798c6656aa4989432d68824145ebb2c675c1f\" instead: unknown"
+
+Problem found: We were setting "cgroup-driver: cgroupfs" in kubeadmcontrolplane. Needed to remove this as systemd was the right config.
+ref: https://github.com/containerd/containerd/issues/4857#issuecomment-747238907
+
